@@ -22,7 +22,8 @@ struct PlanBuilderTests {
         #expect(plan.moves.count == 2)
         let note = plan.moves.first { $0.source.lastPathComponent == "note.txt" }
         #expect(note?.suggestedName == "note")
-        #expect(note?.destinationBucket == .documents)
+        #expect(note?.bucket == .documents)
+        #expect(note?.destinationFolder == "Documents")
         #expect(note?.isDuplicateOf == nil)
         #expect(note?.approved == true)
     }
@@ -39,10 +40,55 @@ struct PlanBuilderTests {
         let flagged = plan.moves.filter { $0.isDuplicateOf != nil }
         #expect(keepers.count == 1)
         #expect(flagged.count == 1)
-        // Earliest-modified (a) is kept; b is flagged as its duplicate and unapproved.
         #expect(keepers.first?.source == a.url)
         #expect(flagged.first?.source == b.url)
         #expect(flagged.first?.isDuplicateOf == a.url)
         #expect(flagged.first?.approved == false)
+    }
+
+    @Test func mergingAppliesSuggestionsAndCanonicalCategories() {
+        let a = URL(fileURLWithPath: "/tmp/a.png")
+        let b = URL(fileURLWithPath: "/tmp/b.pdf")
+        let plan = SortPlan(
+            rootFolder: URL(fileURLWithPath: "/tmp"),
+            moves: [
+                PlannedMove(source: a, bucket: .images, suggestedName: "a"),
+                PlannedMove(source: b, bucket: .pdf, suggestedName: "b"),
+            ],
+            duplicateGroups: [])
+
+        let suggestions: [URL: FileSuggestion] = [
+            a: FileSuggestion(category: "Screenshots", suggestedBaseName: "Login Screen", confidence: .high),
+            b: FileSuggestion(category: "Invoice", suggestedBaseName: "Acme Invoice", confidence: .medium),
+        ]
+        let canonical = ["Screenshots": "Screenshots", "Invoice": "Invoices"]
+
+        let merged = PlanBuilder().merging(plan, suggestionsByURL: suggestions, canonical: canonical)
+
+        let ma = try! #require(merged.moves.first { $0.source == a })
+        #expect(ma.aiCategory == "Screenshots")
+        #expect(ma.destinationFolder == "Screenshots")
+        #expect(ma.suggestedName == "Login Screen")
+        #expect(ma.confidence == .high)
+
+        let mb = try! #require(merged.moves.first { $0.source == b })
+        #expect(mb.aiCategory == "Invoices")        // canonicalized
+        #expect(mb.destinationFolder == "Invoices")
+        #expect(mb.suggestedName == "Acme Invoice")
+        #expect(mb.confidence == .medium)
+    }
+
+    @Test func mergingLeavesUnmatchedMovesUntouched() {
+        let a = URL(fileURLWithPath: "/tmp/a.png")
+        let plan = SortPlan(
+            rootFolder: URL(fileURLWithPath: "/tmp"),
+            moves: [PlannedMove(source: a, bucket: .images, suggestedName: "a")],
+            duplicateGroups: [])
+
+        let merged = PlanBuilder().merging(plan, suggestionsByURL: [:], canonical: [:])
+        let ma = try! #require(merged.moves.first)
+        #expect(ma.aiCategory == nil)
+        #expect(ma.destinationFolder == "Images")
+        #expect(ma.confidence == nil)
     }
 }

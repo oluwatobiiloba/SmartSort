@@ -31,11 +31,31 @@ nonisolated struct PlanBuilder {
             let original = duplicateOf[file.url]
             return PlannedMove(
                 source: file.url,
-                destinationBucket: file.bucket,
+                bucket: file.bucket,
                 suggestedName: file.url.deletingPathExtension().lastPathComponent,
                 isDuplicateOf: original,
                 approved: original == nil)
         }
         return SortPlan(rootFolder: rootFolder, moves: moves, duplicateGroups: duplicateGroups)
+    }
+
+    /// Overlay AI suggestions onto an existing plan: set each matched move's
+    /// category (canonicalized), cleaned name, and confidence. Moves without a
+    /// suggestion are left untouched.
+    func merging(_ plan: SortPlan,
+                 suggestionsByURL: [URL: FileSuggestion],
+                 canonical: [String: String]) -> SortPlan {
+        var updated = plan
+        updated.moves = plan.moves.map { move in
+            guard let suggestion = suggestionsByURL[move.source] else { return move }
+            var merged = move
+            merged.aiCategory = canonical[suggestion.category] ?? suggestion.category
+            merged.confidence = suggestion.confidence
+            if !suggestion.suggestedBaseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                merged.suggestedName = suggestion.suggestedBaseName
+            }
+            return merged
+        }
+        return updated
     }
 }

@@ -2,8 +2,8 @@
 //  PlanPreviewView.swift
 //  SmartSort
 //
-//  Preview of the proposed grouping with per-file approval, plus the
-//  Apply / Undo action bar. Nothing moves until the user taps Apply.
+//  Preview of the proposed grouping with per-file approval, optional AI
+//  enhancement, and the Apply / Undo action bar. Nothing moves until Apply.
 //
 
 import SwiftUI
@@ -17,7 +17,7 @@ struct PlanPreviewView: View {
             header
             Divider()
             List {
-                ForEach(model.bucketedMoves, id: \.bucket) { group in
+                ForEach(model.groupedMoves, id: \.folder) { group in
                     Section {
                         ForEach(group.moves) { move in
                             MoveRow(move: move, isEditable: model.isEditable) { approved in
@@ -25,7 +25,7 @@ struct PlanPreviewView: View {
                             }
                         }
                     } header: {
-                        Label("\(group.bucket.folderName) (\(group.moves.count))",
+                        Label("\(group.folder) (\(group.moves.count))",
                               systemImage: bucketIcon(group.bucket))
                     }
                 }
@@ -59,6 +59,9 @@ struct PlanPreviewView: View {
                     Text("\(model.duplicateCount) duplicate\(model.duplicateCount == 1 ? "" : "s")")
                         .foregroundStyle(.orange)
                 }
+                if model.aiApplied {
+                    Label("AI-organized", systemImage: "sparkles").foregroundStyle(.purple)
+                }
             }
             .font(.callout)
         }
@@ -75,14 +78,18 @@ struct PlanPreviewView: View {
                 Spacer()
                 Button("Undo", systemImage: "arrow.uturn.backward") { model.undo() }
                     .keyboardShortcut("z", modifiers: .command)
-            case .applying:
+            case .applying, .categorizing:
                 ProgressView().controlSize(.small)
-                Text("Working…").foregroundStyle(.secondary)
+                Text(model.phase == .categorizing ? "Categorizing with AI…" : "Working…")
+                    .foregroundStyle(.secondary)
                 Spacer()
             default:
                 Text("\(model.approvedMoveCount) file\(model.approvedMoveCount == 1 ? "" : "s") will be organized")
                     .foregroundStyle(.secondary)
                 Spacer()
+                if model.canEnhanceWithAI {
+                    Button("Enhance with AI", systemImage: "sparkles") { model.enhanceWithAI() }
+                }
                 Button {
                     model.apply()
                 } label: {
@@ -124,7 +131,7 @@ private struct MoveRow: View {
                 .labelsHidden()
                 .disabled(!isEditable)
             VStack(alignment: .leading, spacing: 2) {
-                Text(move.source.lastPathComponent)
+                Text(displayName)
                     .lineLimit(1).truncationMode(.middle)
                 if move.isDuplicate, let original = move.isDuplicateOf {
                     Label("Duplicate of \(original.lastPathComponent)", systemImage: "doc.on.doc")
@@ -132,11 +139,53 @@ private struct MoveRow: View {
                 }
             }
             Spacer()
+            if let confidence = move.confidence {
+                ConfidenceBadge(confidence)
+            }
             Image(systemName: "arrow.right").foregroundStyle(.tertiary)
-            Text(move.destinationBucket.folderName)
+            Text(move.destinationFolder)
                 .font(.callout).foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
         .opacity(move.approved ? 1 : 0.5)
+    }
+
+    /// Show the AI-cleaned name alongside the original when they differ.
+    private var displayName: String {
+        let ext = move.source.pathExtension
+        let original = move.source.deletingPathExtension().lastPathComponent
+        guard move.confidence != nil, move.suggestedName != original else {
+            return move.source.lastPathComponent
+        }
+        return ext.isEmpty ? move.suggestedName : "\(move.suggestedName).\(ext)"
+    }
+}
+
+private struct ConfidenceBadge: View {
+    let confidence: FileSuggestion.Confidence
+    init(_ confidence: FileSuggestion.Confidence) { self.confidence = confidence }
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(color.opacity(0.18), in: Capsule())
+            .foregroundStyle(color)
+    }
+
+    private var label: String {
+        switch confidence {
+        case .low: return "Low"
+        case .medium: return "Med"
+        case .high: return "High"
+        }
+    }
+
+    private var color: Color {
+        switch confidence {
+        case .low: return .orange
+        case .medium: return .yellow
+        case .high: return .green
+        }
     }
 }

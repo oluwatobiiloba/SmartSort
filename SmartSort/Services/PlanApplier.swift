@@ -20,7 +20,7 @@ nonisolated struct PlanApplier {
 
         for move in plan.moves where move.approved && !move.isDuplicate {
             let destinationDir = plan.rootFolder
-                .appendingPathComponent(move.destinationBucket.folderName, isDirectory: true)
+                .appendingPathComponent(move.destinationFolder, isDirectory: true)
             try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
 
             var destination = destinationDir.appendingPathComponent(move.suggestedName)
@@ -32,7 +32,7 @@ nonisolated struct PlanApplier {
             entries.append(ManifestEntry(
                 from: move.source.path,
                 to: destination.path,
-                bucket: move.destinationBucket.rawValue,
+                bucket: move.bucket.rawValue,
                 originalName: move.source.lastPathComponent,
                 newName: destination.lastPathComponent,
                 sha256: nil)) // reserved for integrity checks in a later phase
@@ -64,12 +64,14 @@ nonisolated struct PlanApplier {
             try fm.moveItem(at: current, to: original)
         }
 
-        // Best-effort cleanup of bucket folders we created, then the manifest.
-        let rootFolder = URL(fileURLWithPath: manifest.rootFolder)
-        for bucket in Set(manifest.entries.map(\.bucket)) {
-            let name = FileBucket(rawValue: bucket)?.folderName ?? bucket
-            removeIfEmpty(rootFolder.appendingPathComponent(name, isDirectory: true))
+        // Best-effort cleanup of the folders we created (parents of moved files), then the manifest.
+        let createdDirectories = Set(manifest.entries.map {
+            URL(fileURLWithPath: $0.to).deletingLastPathComponent().path
+        })
+        for path in createdDirectories {
+            removeIfEmpty(URL(fileURLWithPath: path))
         }
+        let rootFolder = URL(fileURLWithPath: manifest.rootFolder)
         try? fm.removeItem(at: manifestURL)
         removeIfEmpty(rootFolder.appendingPathComponent(Self.manifestFolderName, isDirectory: true))
     }

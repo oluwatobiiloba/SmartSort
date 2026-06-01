@@ -10,13 +10,6 @@ import FoundationModels
 
 @Generable
 struct FileSuggestion: Equatable, Sendable {
-    /// Category folders the model may choose from. Kept in sync with `FileBucket`
-    /// so an AI suggestion always maps onto a real destination bucket.
-    @Generable
-    enum Category: String, CaseIterable, Equatable, Sendable {
-        case documents, images, code, archives, media, audio, pdfs, spreadsheets, other
-    }
-
     /// How sure the model is. Modeled as an enum (not a free `Double`) so the
     /// preview/routing logic stays deterministic.
     @Generable
@@ -24,10 +17,12 @@ struct FileSuggestion: Equatable, Sendable {
         case low, medium, high
     }
 
-    @Guide(description: "Best category folder for this file")
-    let category: Category
+    /// Free-form semantic category folder name (e.g. "Invoices", "Travel
+    /// Photos"). Near-synonyms across files are merged by CategoryConsolidator.
+    @Guide(description: "A short, human-friendly category folder name in Title Case, e.g. \"Invoices\", \"Travel Photos\", \"Source Code\"")
+    let category: String
 
-    @Guide(description: "A clean, human-readable filename WITHOUT the extension")
+    @Guide(description: "A clean, descriptive filename WITHOUT the extension")
     let suggestedBaseName: String
 
     @Guide(description: "How confident you are in this categorization")

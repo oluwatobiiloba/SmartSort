@@ -13,6 +13,7 @@ struct ContentView: View {
     var body: some View {
         content
             .frame(minWidth: 640, minHeight: 480)
+            .task { await model.refreshAIAvailability() }
             .alert("Couldn’t scan that folder",
                    isPresented: Binding(get: { model.errorMessage != nil },
                                         set: { if !$0 { model.errorMessage = nil } })) {
@@ -33,7 +34,7 @@ struct ContentView: View {
                     .controlSize(.large)
                 Text("Scanning…").foregroundStyle(.secondary)
             }
-        case .ready, .applying, .done:
+        case .ready, .categorizing, .applying, .done:
             if let plan = model.plan {
                 PlanPreviewView(model: model, plan: plan)
             } else {

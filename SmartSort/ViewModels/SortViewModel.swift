@@ -2,8 +2,8 @@
 //  SortViewModel.swift
 //  SmartSort
 //
-//  Drives the scan → preview → apply/undo flow. UI-facing state lives here;
-//  the heavy scanning/hashing/moving runs off the main actor.
+//  Drives the scan → preview → (optional AI) → apply/undo flow. UI-facing state
+//  lives here; scanning/hashing/extraction/inference run off the main actor.
 //
 
 import Foundation
@@ -12,34 +12,45 @@ import Observation
 @MainActor
 @Observable
 final class SortViewModel {
-    enum Phase: Equatable { case idle, scanning, ready, applying, done }
+    enum Phase: Equatable { case idle, scanning, categorizing, ready, applying, done }
 
     private(set) var phase: Phase = .idle
     private(set) var plan: SortPlan?
     private(set) var rootFolder: URL?
     private(set) var manifestURL: URL?
+    private(set) var aiAvailable = false
+    private(set) var aiApplied = false
     var errorMessage: String?
+
+    private var scannedFiles: [ScannedFile] = []
+
+    /// Refresh whether on-device AI categorization can run (drives the Enhance button).
+    func refreshAIAvailability() async {
+        aiAvailable = await Categorizer().availability() == .available
+    }
 
     // MARK: - Scanning
 
-    /// Prompt for a folder, then scan + analyze it.
     func chooseFolder() {
         guard let url = FolderPicker.pickDirectory() else { return }
         rootFolder = url
         Task { await analyze(url) }
     }
 
-    /// Scan the folder, detect exact duplicates, and build a reviewable plan.
     func analyze(_ root: URL) async {
         phase = .scanning
         plan = nil
         manifestURL = nil
+        aiApplied = false
+        scannedFiles = []
         do {
-            let built = try await Task.detached(priority: .userInitiated) {
+            let (files, built) = try await Task.detached(priority: .userInitiated) {
                 let files = try FolderScanner().scan(root)
                 let duplicates = try DuplicateDetector().exactDuplicateGroups(files)
-                return PlanBuilder().build(rootFolder: root, files: files, duplicateGroups: duplicates)
+                let plan = PlanBuilder().build(rootFolder: root, files: files, duplicateGroups: duplicates)
+                return (files, plan)
             }.value
+            scannedFiles = files
             plan = built
             phase = .ready
         } catch {
@@ -48,10 +59,37 @@ final class SortViewModel {
         }
     }
 
+    // MARK: - AI enhancement
+
+    /// Extract signals, categorize with the on-device model, consolidate
+    /// near-synonym categories, and overlay the results onto the current plan.
+    func enhanceWithAI() {
+        guard let currentPlan = plan, phase == .ready else { return }
+        let targets = scannedFiles.filter { file in
+            currentPlan.moves.contains { $0.source == file.url && $0.approved && !$0.isDuplicate }
+        }
+        guard !targets.isEmpty else { return }
+
+        phase = .categorizing
+        Task {
+            let signals = await SignalExtractor().extractAll(targets)
+            let suggestions = await Categorizer().suggestAll(for: targets, signals: signals)
+
+            let urlByID = Dictionary(uniqueKeysWithValues: targets.map { ($0.id, $0.url) })
+            var byURL: [URL: FileSuggestion] = [:]
+            for (id, suggestion) in suggestions {
+                if let url = urlByID[id] { byURL[url] = suggestion }
+            }
+            let canonical = CategoryConsolidator().canonicalMap(for: byURL.values.map(\.category))
+
+            plan = PlanBuilder().merging(currentPlan, suggestionsByURL: byURL, canonical: canonical)
+            aiApplied = true
+            phase = .ready
+        }
+    }
+
     // MARK: - Apply / Undo
 
-    /// Move every approved, non-duplicate file into its bucket and remember the
-    /// manifest so the whole operation can be reversed.
     func apply() {
         guard let plan, phase == .ready else { return }
         phase = .applying
@@ -69,7 +107,6 @@ final class SortViewModel {
         }
     }
 
-    /// Reverse the last apply, then re-scan the restored folder.
     func undo() {
         guard let manifestURL, let root = rootFolder else { return }
         phase = .applying
@@ -96,16 +133,18 @@ final class SortViewModel {
 
     // MARK: - Derived display state
 
-    /// Moves grouped by destination bucket, in a stable display order.
-    var bucketedMoves: [(bucket: FileBucket, moves: [PlannedMove])] {
+    /// Moves grouped by destination folder (AI category or bucket), with a
+    /// representative bucket for the section icon.
+    var groupedMoves: [(folder: String, bucket: FileBucket, moves: [PlannedMove])] {
         guard let plan else { return [] }
-        let grouped = Dictionary(grouping: plan.moves, by: \.destinationBucket)
-        return FileBucket.allCases.compactMap { bucket in
-            guard let moves = grouped[bucket], !moves.isEmpty else { return nil }
-            let sorted = moves.sorted {
+        let grouped = Dictionary(grouping: plan.moves, by: \.destinationFolder)
+        return grouped.keys.sorted().map { folder in
+            let moves = grouped[folder]!.sorted {
                 $0.source.lastPathComponent.localizedStandardCompare($1.source.lastPathComponent) == .orderedAscending
             }
-            return (bucket, sorted)
+            let bucket = Dictionary(grouping: moves, by: \.bucket)
+                .max { $0.value.count < $1.value.count }?.key ?? .other
+            return (folder, bucket, moves)
         }
     }
 
@@ -113,4 +152,5 @@ final class SortViewModel {
     var duplicateCount: Int { plan?.moves.filter(\.isDuplicate).count ?? 0 }
     var approvedMoveCount: Int { plan?.moves.filter { $0.approved && !$0.isDuplicate }.count ?? 0 }
     var isEditable: Bool { phase == .ready }
+    var canEnhanceWithAI: Bool { phase == .ready && aiAvailable && !aiApplied }
 }

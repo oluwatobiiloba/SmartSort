@@ -78,6 +78,30 @@ struct PlanBuilderTests {
         #expect(mb.confidence == .medium)
     }
 
+    @Test func mergingSanitizesMaliciousAICategoryAndName() {
+        let a = URL(fileURLWithPath: "/tmp/a.png")
+        let plan = SortPlan(
+            rootFolder: URL(fileURLWithPath: "/tmp"),
+            moves: [PlannedMove(source: a, bucket: .images, suggestedName: "a")],
+            duplicateGroups: [])
+
+        // Prompt-injected suggestion trying to escape the root.
+        let suggestions: [URL: FileSuggestion] = [
+            a: FileSuggestion(category: "../../Library",
+                              suggestedBaseName: "../../../etc/passwd",
+                              confidence: .high),
+        ]
+        let canonical = ["../../Library": "../../Library"]
+
+        let merged = PlanBuilder().merging(plan, suggestionsByURL: suggestions, canonical: canonical)
+        let move = try! #require(merged.moves.first)
+
+        #expect(!move.destinationFolder.contains("/"))
+        #expect(!move.destinationFolder.contains(".."))
+        #expect(!move.suggestedName.contains("/"))
+        #expect(!move.suggestedName.contains(".."))
+    }
+
     @Test func mergingLeavesUnmatchedMovesUntouched() {
         let a = URL(fileURLWithPath: "/tmp/a.png")
         let plan = SortPlan(

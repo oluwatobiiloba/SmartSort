@@ -67,6 +67,27 @@ struct PlanApplierTests {
         #expect(PlanApplier.uniqueDestination(free).lastPathComponent == "free.txt")
     }
 
+    @Test func doesNotMoveFilesOutsideRoot() throws {
+        let fm = FileManager.default
+        let root = try makeTempDir()
+        let escapeMarker = "ESCAPE-\(UUID().uuidString)"
+        let sibling = root.deletingLastPathComponent().appendingPathComponent(escapeMarker)
+        defer { try? fm.removeItem(at: root); try? fm.removeItem(at: sibling) }
+
+        try Data("secret".utf8).write(to: root.appendingPathComponent("a.txt"))
+
+        // Malicious move (as if upstream sanitization were bypassed): escape via "..".
+        var move = PlannedMove(source: root.appendingPathComponent("a.txt"),
+                               bucket: .documents, suggestedName: "a")
+        move.aiCategory = "../\(escapeMarker)"
+        let plan = SortPlan(rootFolder: root, moves: [move], duplicateGroups: [])
+
+        try PlanApplier().apply(plan)
+
+        #expect(!fm.fileExists(atPath: sibling.path))                               // never escaped
+        #expect(fm.fileExists(atPath: root.appendingPathComponent("a.txt").path))   // stayed put
+    }
+
     // MARK: - Helpers
 
     private func deterministicPlan(_ root: URL) throws -> SortPlan {

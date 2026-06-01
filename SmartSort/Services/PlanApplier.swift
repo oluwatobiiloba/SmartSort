@@ -21,11 +21,16 @@ nonisolated struct PlanApplier {
         for move in plan.moves where move.approved && !move.isDuplicate {
             let destinationDir = plan.rootFolder
                 .appendingPathComponent(move.destinationFolder, isDirectory: true)
-            try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
-
             var destination = destinationDir.appendingPathComponent(move.suggestedName)
             let ext = move.source.pathExtension
             if !ext.isEmpty { destination.appendPathExtension(ext) }
+
+            // Defense in depth: never create folders or move files outside the chosen
+            // root, even if upstream sanitization is bypassed (e.g. prompt injection).
+            guard Self.isContained(destination, within: plan.rootFolder),
+                  Self.isContained(destinationDir, within: plan.rootFolder) else { continue }
+
+            try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
             destination = Self.uniqueDestination(destination)
 
             try fm.moveItem(at: move.source, to: destination)
@@ -74,6 +79,14 @@ nonisolated struct PlanApplier {
         let rootFolder = URL(fileURLWithPath: manifest.rootFolder)
         try? fm.removeItem(at: manifestURL)
         removeIfEmpty(rootFolder.appendingPathComponent(Self.manifestFolderName, isDirectory: true))
+    }
+
+    /// True if `url` resolves to `root` or a path strictly inside it (symlinks
+    /// resolved, `..` collapsed) — the guard against path traversal.
+    static func isContained(_ url: URL, within root: URL) -> Bool {
+        let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+        let target = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return target == rootPath || target.hasPrefix(rootPath + "/")
     }
 
     /// Return `url` if free, otherwise the same name with " 2", " 3", … appended.

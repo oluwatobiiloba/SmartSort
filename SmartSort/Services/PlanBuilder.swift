@@ -49,11 +49,13 @@ nonisolated struct PlanBuilder {
         updated.moves = plan.moves.map { move in
             guard let suggestion = suggestionsByURL[move.source] else { return move }
             var merged = move
-            merged.aiCategory = canonical[suggestion.category] ?? suggestion.category
+            // AI output is untrusted (prompt-injectable via file content) — sanitize
+            // both the category folder and the filename to single safe components.
+            merged.aiCategory = SafePathComponent.make(
+                canonical[suggestion.category] ?? suggestion.category, fallback: "Uncategorized")
+            merged.suggestedName = SafePathComponent.make(
+                suggestion.suggestedBaseName, fallback: move.suggestedName)
             merged.confidence = suggestion.confidence
-            if !suggestion.suggestedBaseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                merged.suggestedName = suggestion.suggestedBaseName
-            }
             return merged
         }
         return updated

@@ -2,52 +2,42 @@
 //  ContentView.swift
 //  SmartSort
 //
-//  Created by Oluwatobiloba Aremu on 01/06/2026.
+//  Root view: routes between the welcome screen, scanning progress, and the plan preview.
 //
 
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @State private var model = SortViewModel()
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
+        content
+            .frame(minWidth: 640, minHeight: 480)
+            .alert("Couldn’t scan that folder",
+                   isPresented: Binding(get: { model.errorMessage != nil },
+                                        set: { if !$0 { model.errorMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(model.errorMessage ?? "")
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
-        }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+    @ViewBuilder
+    private var content: some View {
+        switch model.phase {
+        case .idle:
+            EmptyStateView { model.chooseFolder() }
+        case .scanning:
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Scanning…").foregroundStyle(.secondary)
+            }
+        case .ready, .applying, .done:
+            if let plan = model.plan {
+                PlanPreviewView(model: model, plan: plan)
+            } else {
+                EmptyStateView { model.chooseFolder() }
             }
         }
     }
@@ -55,5 +45,4 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

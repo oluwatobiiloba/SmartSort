@@ -32,4 +32,6 @@ nonisolated struct SortPlan: Sendable {
     var moves: [PlannedMove]
     /// Exact-hash duplicate groups (each group is 2+ URLs with identical content).
     var duplicateGroups: [[URL]]
+    /// Visually/semantically similar (but not identical) files, found on demand.
+    var nearDuplicateGroups: [NearDuplicateGroup] = []
 }

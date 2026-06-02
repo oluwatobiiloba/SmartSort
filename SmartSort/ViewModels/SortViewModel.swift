@@ -20,6 +20,8 @@ final class SortViewModel {
     private(set) var manifestURL: URL?
     private(set) var aiAvailable = false
     private(set) var aiApplied = false
+    private(set) var isFindingSimilar = false
+    private(set) var similarSearchDone = false
     var errorMessage: String?
 
     private var scannedFiles: [ScannedFile] = []
@@ -42,6 +44,7 @@ final class SortViewModel {
         plan = nil
         manifestURL = nil
         aiApplied = false
+        similarSearchDone = false
         scannedFiles = []
         do {
             let (files, built) = try await Task.detached(priority: .userInitiated) {
@@ -85,6 +88,23 @@ final class SortViewModel {
             plan = PlanBuilder().merging(currentPlan, suggestionsByURL: byURL, canonical: canonical)
             aiApplied = true
             phase = .ready
+        }
+    }
+
+    // MARK: - Near-duplicate detection
+
+    /// Find visually-similar images and similar documents (advisory; never moves files).
+    func findSimilarFiles() {
+        guard plan != nil, phase == .ready, !isFindingSimilar else { return }
+        isFindingSimilar = true
+        let files = scannedFiles
+        Task {
+            let textBuckets: Set<FileBucket> = [.pdf, .documents, .code]
+            let signals = await SignalExtractor().extractAll(files.filter { textBuckets.contains($0.bucket) })
+            let groups = await NearDuplicateDetector().nearDuplicates(in: files, signals: signals)
+            plan?.nearDuplicateGroups = groups
+            isFindingSimilar = false
+            similarSearchDone = true
         }
     }
 
@@ -153,4 +173,6 @@ final class SortViewModel {
     var approvedMoveCount: Int { plan?.moves.filter { $0.approved && !$0.isDuplicate }.count ?? 0 }
     var isEditable: Bool { phase == .ready }
     var canEnhanceWithAI: Bool { phase == .ready && aiAvailable && !aiApplied }
+    var canFindSimilar: Bool { phase == .ready && !isFindingSimilar && !similarSearchDone }
+    var nearDuplicateGroups: [NearDuplicateGroup] { plan?.nearDuplicateGroups ?? [] }
 }

@@ -17,6 +17,16 @@ struct PlanPreviewView: View {
             header
             Divider()
             List {
+                if !model.nearDuplicateGroups.isEmpty {
+                    Section {
+                        ForEach(model.nearDuplicateGroups) { group in
+                            NearDuplicateRow(group: group)
+                        }
+                    } header: {
+                        Label("Possible Duplicates (\(model.nearDuplicateGroups.count))",
+                              systemImage: "rectangle.on.rectangle.angled")
+                    }
+                }
                 ForEach(model.groupedMoves, id: \.folder) { group in
                     Section {
                         ForEach(group.moves) { move in
@@ -34,6 +44,17 @@ struct PlanPreviewView: View {
         }
         .safeAreaInset(edge: .bottom) { actionBar }
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                if model.isFindingSimilar {
+                    ProgressView().controlSize(.small)
+                } else if model.canFindSimilar {
+                    Button {
+                        model.findSimilarFiles()
+                    } label: {
+                        Label("Find Similar Files", systemImage: "sparkle.magnifyingglass")
+                    }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     model.chooseFolder()
@@ -116,6 +137,24 @@ struct PlanPreviewView: View {
         case .spreadsheets: return "tablecells"
         case .other: return "questionmark.folder"
         }
+    }
+}
+
+private struct NearDuplicateRow: View {
+    let group: NearDuplicateGroup
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: group.kind == .image ? "photo.on.rectangle.angled" : "doc.on.doc")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.urls.map(\.lastPathComponent).joined(separator: ", "))
+                    .lineLimit(2)
+                Text("\(group.urls.count) similar \(group.kind == .image ? "images" : "documents") — review")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

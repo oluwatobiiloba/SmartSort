@@ -28,26 +28,42 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "folder.badge.gearshape")
-                .font(.system(size: 56))
-                .foregroundStyle(.tint)
+            Image(systemName: "folder")
+                .font(.system(size: 52, weight: .regular))
+                .foregroundStyle(.secondary)
             Text("SmartSort")
-                .font(.largeTitle.bold())
-            Text("Pick a folder and SmartSort will preview a tidy, type-based grouping\nand flag exact duplicates — nothing moves until you say so.")
+                .font(.largeTitle.weight(.semibold))
+            Text("Choose a folder and SmartSort lays out a tidy, by-type grouping and points out duplicates. You review everything first — nothing moves until you say so.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            Button(action: onChoose) {
-                Label("Choose Folder…", systemImage: "folder")
-            }
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 4)
+                .frame(maxWidth: 420)
+            Button("Choose Folder…", action: onChoose)
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 4)
         }
         .padding(48)
     }
 }
 
-#Preview {
+/// Shown while the folder is being read. Deliberately quiet and single-pane.
+struct ScanningView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Reading your folder…")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+#Preview("Empty") {
     EmptyStateView(onChoose: {})
+        .frame(width: 640, height: 480)
+}
+
+#Preview("Scanning") {
+    ScanningView()
         .frame(width: 640, height: 480)
 }

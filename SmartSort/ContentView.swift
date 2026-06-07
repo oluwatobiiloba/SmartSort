@@ -29,11 +29,7 @@ struct ContentView: View {
         case .idle:
             EmptyStateView { model.chooseFolder() }
         case .scanning:
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Scanning…").foregroundStyle(.secondary)
-            }
+            ScanningView()
         case .ready, .categorizing, .applying, .done:
             if let plan = model.plan {
                 PlanPreviewView(model: model, plan: plan)
